@@ -13,8 +13,9 @@ Program, script, configuration, and log:<br>
 **Python script:** `controller.py`<br>
 **Log file:** `Logs/TLog-20180417.2007.txt`<br><br>
 Located in: https://github.com/jwdunn1/FCND-Controls-CPP:<br>
-**C++ program:** `QuadController.cpp`<br>
-**Configuration:** `QuadControlParams.txt`
+**C++ program:** `src/QuadControl.cpp`<br>
+**C++ header:** `src/QuadControl.h`<br>
+**Configuration:** `config/QuadControlParams.txt`
 <br><br><br>
 
 ## Contents
