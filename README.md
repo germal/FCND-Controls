@@ -1,376 +1,250 @@
-# FCND Controls Project
+# FCND - Controls Project
 
-For this project, you will write the low level flight controllers for the vehicle. In the previous projects, commanded positions were passed to the simulation. In this project, commands will be passed as three directional body moments and thrust. Using the position, velocity, attitude, and body rates sent from the simulation, you will first write several nested control loops to achieve waypoint following control of the first project. Next, you'll expand these capabilities to follow a timed trajectory. The goal of the trajectory following will be to arrive at the end within the specified time while maintaining position errors below a threshold. After the Python portion of the project, you will modify a C++ controller.
+![C++ trajectory](images/cover.png?raw=true)
 
-For easy navigation, this document is broken up into the following sections:
+## Overview
 
- - [Environment Setup](#environment-setup)
- - [Update Backyard Flyer Solution](#update-backyard-flyer-solution)
- - [Get Familiar with the Code](#get-familiar-with-the-code)
- - [The Tasks](#the-tasks)
- - [Additional Resources](#additional-resources)
+The goal of the project is to first implement a prototype controller in Python and then translate that code into C++ with some modifications that will improve its robustness and performance. 
+<br><br><br>
 
+## Associated files
 
-## Setup Your Environment ##
+Program, script, configuration, and log:<br>
+**Python script:** `controller.py`<br>
+**Log file:** `Logs/TLog-20180417.2007.txt`<br><br>
+Located in: https://github.com/jwdunn1/FCND-Controls-CPP:<br>
+**C++ program:** `QuadController.cpp`<br>
+**Configuration:** `QuadControlParams.txt`
+<br><br><br>
 
-### Step 1: download the simulator
+## Contents
 
-In this beta version the simulator is provided in the repository. For students, this step will read: If you haven't already, download the version of the simulator that's appropriate for your operating system [from this repository]() (TODO: link to be added).
+The following report consists of 4 sections:
 
-### Step 2: set up your python environment
+**01 Implementation**<br>
+    01.1 Body rate control<br>
+    01.2 Altitude control<br>
+    01.3 Roll-pitch control<br>
+    01.4 Yaw control<br>
+    01.5 Lateral position control<br>
+    01.6 Motor commands in C++
 
-If you haven't already, set up your Python environment and get all the relevant packages installed using Anaconda following instructions in [this repository](https://github.com/udacity/FCND-Term1-Starter-Kit)
+**02 Flight evaluation**<br>
+    02.1 Python controller performance<br>
+    02.2 C++ controller performance
 
-#### Make sure Udacidrone is to to date
+**03 References**<br>
+    Books, research papers, and tools
 
-Let's quickly make sure you have the most up to date version of udacidrone, which will allow you to use the full functionality of the controls simulator environment.
+**04 Appendix**<br>
+    04.1 Rotation matrix<br>
+    04.2 Angular velocity<br>
+    04.3 Thrust computation
+<br><br><br>
 
-First make sure you have activated your environment:
+## 01 Implementation
 
-```sh
-source activate fcnd
-```
+Each of the implemented methods of the architecture fit together as illustrated in Figure 1. Beginning with the code from the `Full 3D Control` exercise presented in class, the methods were refactored several times to gain a full understanding of the mathematics, physics, and data flow.
 
-Then run the update:
+![Architecture](images/Figure1.png?raw=true)<br>
+Figure 1: Control structure
 
-```sh
-pip install udacidrone --upgrade
-```
+## 
 
 
-### Step 3: clone this repository
 
-```sh
-git clone https://github.com/udacity/FCND-Controls
-```
+### 01.1 Body rate control
 
-### Step 4: test setup
+The controller is a proportional controller on body rates to commanded moments. The controller takes into account the moments of inertia of the drone when calculating the commanded moments. For the Python version, this controller operates at a frequency of 40 hertz through the gyro callback. (The C++ version operates all controllers synchronously at 500 Hz.)
 
-Your starting point here will be the [solution code](https://github.com/udacity/FCND-Backyard-Flyer/blob/solution/backyard_flyer.py) for the Backyard Flyer project. Before you start modifying the code, make sure that your Backyard Flyer solution code works as expected and your drone can perform the square flight path in the new simulator. To do this, start the simulator and run the [`backyard_flyer.py`](https://github.com/udacity/FCND-Backyard-Flyer/blob/solution/backyard_flyer.py) script.
+Python: [see lines 105-112 in `controller.py`]<br>
+C++: [see lines 111-117 in `QuadController.cpp`]
 
-```py
-source activate fcnd # if you haven't already sourced your Python environment, do so now.
-python backyard_flyer.py
-```
+## 
+### 01.2 Altitude control
 
-The quad should take off, fly a square pattern and land, just as in the previous project. If everything works then you are ready to move to the next step and modify `backyard_flyer.py` to get it ready to use your custom controller.
+Part one of attitude control, the altitude controller uses both the down position and the down velocity to command thrust. The drone's mass is accounted for to ensure that the output value is a thrust value in newtons. The thrust includes the non-linear effects from non-zero roll/pitch angles.
 
-## Update Backyard Flyer Solution ##
+Note: The Python version of the attitude controller (which includes altitude, roll-pitch, and yaw controllers) operates at 40 Hz through the attitude callback.
 
-The following modifications need to be made to the solution `backyard_flyer.py`. Feel free to use a copy of your own solution to the Backyard Flyer Project or the one in the link provided.
+Python: [see lines 135-144 in `controller.py`]
 
-### Step 1
+Additionally, the C++ altitude controller contains an integrator to handle the weight non-idealities presented in scenario 4.
 
-Import the `UnityDrone` and `NonlinearController` classes and modify the `BackyardFlyer` class to be a subclass of `UnityDrone` instead of `Drone`. `UnityDrone` is a subclass of `Drone`, so it provides all the functionality of `Drone` along with additional Unity specific commands/functionality (see below).
+C++: [see lines 149-159 in `QuadController.cpp`]
 
-```py
-from unity_drone import UnityDrone
-from controller import NonlinearController
-...
-class BackyardFlyer(UnityDrone):
-```
+## 
+### 01.3 Roll pitch control
 
-### Step 2
+Part two of attitude control, the roll-pitch controller uses the acceleration and thrust commands, in addition to the vehicle attitude to output a body rate command. The controller accounts for the non-linear transformation from local accelerations to body rates. The drone's mass is accounted for when calculating the target angles. See also the rotation matrix and angular velocity in the appendix below. Lateral acceleration is limited by a maximum tilt angle.
 
-Add a controller object in the `__init__` method:
+Python: [see lines 158-170 in `controller.py`]<br>
+C++: [see lines 190-199 in `QuadController.cpp`]
 
-```py
-def __init__(self, connection):
-    ...
-    self.controller = NonlinearController()
-```
+## 
+### 01.4 Yaw control
 
-### Step 3
+Part three of attitude control, the yaw controller is a linear/proportional heading mechanism which outputs yaw rate commands. Further, the yaw error is checked for a valid range between -π and π.
 
-Add the following three methods to your class to incorporate the controller into the backyard flyer.
+Python: [see lines 179-185 in `controller.py`]<br>
+C++: [see lines 222-228 in `QuadController.cpp`]
 
-```py
+## 
+### 01.5 Lateral position control
 
-def position_controller(self):
-    """Sets the local acceleration target using the local position and local velocity"""
-    
-    (self.local_position_target, self.local_velocity_target, yaw_cmd) = self.controller.trajectory_control(self.position_trajectory, self.yaw_trajectory, self.time_trajectory, time.time())
-    self.attitude_target = np.array((0.0, 0.0, yaw_cmd))
+Finally, the lateral position controller uses the local NE position and velocity to generate a commanded local acceleration. The Python version operates at 80 Hz through the velocity callback. The trajectory_control  routine optionally returns an acceleration feed-forward value to pass along to the lateral position controller (a testing script mentioned in section 07 below makes use of this feed forward value). Additionally, to smooth the sharp corners of the test trajectory and improve computation of the commanded acceleration, an integrator uses the time duration since the last call.
 
-    acceleration_cmd = self.controller.lateral_position_control(self.local_position_target[0:2], self.local_velocity_target[0:2], self.local_position[0:2], self.local_velocity[0:2])
-    self.local_acceleration_target = np.array([acceleration_cmd[0], acceleration_cmd[1], 0.0])
-    
-def attitude_controller(self):
-    """Sets the body rate target using the acceleration target and attitude"""
-    self.thrust_cmd = self.controller.altitude_control(-self.local_position_target[2], -self.local_velocity_target[2], -self.local_position[2], -self.local_velocity[2], self.attitude, 9.81)
-    roll_pitch_rate_cmd = self.controller.roll_pitch_controller(self.local_acceleration_target[0:2], self.attitude, self.thrust_cmd)
-    yawrate_cmd = self.controller.yaw_control(self.attitude_target[2], self.attitude[2])
-    self.body_rate_target = np.array([roll_pitch_rate_cmd[0], roll_pitch_rate_cmd[1], yawrate_cmd])
-    
-def bodyrate_controller(self):  
-    """Commands a moment to the vehicle using the body rate target and body rates"""
-    moment_cmd = self.controller.body_rate_control(self.body_rate_target, self.gyro_raw)
-    self.cmd_moment(moment_cmd[0], moment_cmd[1], moment_cmd[2], self.thrust_cmd)
-```
+Python: [see lines 208-219 in `controller.py`]<br>
+C++: [see lines 263-274 in `QuadController.cpp`]
 
-### Step 4
+## 
+### 01.6 Motor commands in C++.
 
-Register and add callbacks for the `RAW_GYROSCOPE`, `ATTITUDE`, and `LOCAL_VELOCITY` messages. Call the appropriate level of control in each callback (i.e. `bodyrate_controller()` is called in `gyro_callback()`):
+The thrust and moments are converted to the appropriate four different desired thrust commands for the motors. The dimensions of the drone arm length (`L`) and motor torque coefficient (`kappa`) are accounted for when calculating thrust from desired rotation moments. See also the thrust computation in the appendix below.
 
-```py
-def __init___(self,connection):
-    ...
-    self.register_callback(MsgID.ATTITUDE, self.attitude_callback)
-    self.register_callback(MsgID.RAW_GYROSCOPE, self.gyro_callback)
-    self.register_callback(MsgID.LOCAL_VELOCITY, self.velocity_callback)
-    
-def attitude_callback(self):
-    ...
-    if self.flight_state == States.WAYPOINT:
-        self.attitude_controller()
-    
-def gyro_callback(self):
-    ...
-    if self.flight_state == States.WAYPOINT:
-        self.bodyrate_controller()
-            
-def velocity_callback(self):
-    ...
-    if self.flight_state == States.WAYPOINT:
-        self.position_controller()
-```
+C++: [see lines 77-86 in `QuadController.cpp`]
+<br><br><br>
 
-### Step 5
 
-In the waypoint transition method, replace the `self.cmd_position` method (which is disabled by `UnityDrone`) with setting the target local position. Note: `local_position_target` should be in NED coordinates, the backyard_flyer solution may calculate the box in NE altitude coordinates
+## 02 Flight evaluation
 
-```py
-# replace this
-self.cmd_position(self.target_position[0], self.target_position[1], self.target_position[2], 0.0)
+### 02.1 Python controller performance
+The Python controller successfully follows the provided test trajectory, meeting the minimum flight performance metrics. See the log file (`TLog.txt`) in the `Logs` folder. The control gains were discovered manually through trial and error.
 
-# with this
-self.local_position_target = np.array((self.target_position[0], self.target_position[1], self.target_position[2]))
-```
+For this, the drone passes the provided evaluation script with the default parameters. These metrics being: 
 
-### Step 6
+1. the drone flies the test trajectory faster than 20 seconds
+2. the maximum horizontal error is less than 2 meters
+3. the maximum vertical error is less than 1 meter
 
-For this project we will no longer be flying the waypoint box, but rather a full flight trajectory, so remove calculate box and load the test trajectory:
+Figures 2-4 below are graphic results from a successful flight.
 
-```py
-# replace this
-self.all_waypoints = self.calculate_box()
+![Test results](images/Figure2.png?raw=true)<br>
+Figure 2: Example results from the test script.
 
-# with this
-(self.position_trajectory, self.time_trajectory, self.yaw_trajectory) = self.load_test_trajectory(time_mult=0.5)
-self.all_waypoints = self.position_trajectory.copy()
-self.waypoint_number = -1
-```
+## 
 
-### Step 7
+![Test trajectory](images/Figure3.png?raw=true)<br>
+Figure 3: Overhead view of test trajectory (gray line), flight path (dashed blue), start (green), goal (red). The light gray area is a 2-meter lateral tolerance.
 
-As our trajectory defines a waypoint with both time and location, change the transition criterion from proximity based to time based:
+## 
 
-```py
-# Replace this
-if np.linalg.norm(self.target_position[0:2] - self.local_position[0:2]) < 1.0:
-    ...
+![Test trajectory](images/Figure4.png?raw=true)<br>
+Figure 4: Horizontal and vertical error metrics from a successful flight
 
-# with this
-if time.time() > self.time_trajectory[self.waypoint_number]:
-    ...
-...
+The NonlinearController class can operate with the default controls_flyer.py script, or with the controls_flyer-TEST.py script. The `TEST` version improves performance by slowing the attitude and position controllers to 20 Hz. A comparison sequence of 20 successful runs of each script is plotted in Figure 5 and demonstrates vertical error reduction by 31.5% (blue) and horizontal error reduction by 2.3% (red). The `TEST` version also includes alternative trajectories useful for tuning the control gains. A hover stability test indicates the Unity simulator contains a GPS noise radius less than 0.25 meter.
 
-def waypoint_transition(self):
-    ...
-    self.waypoint_number = self.waypoint_number+1
-```
+![Python test runs](images/Figure5.png?raw=true)<br>
+Figure 5: Error metrics from 40 successful flights, comparing the default script (dashed) with reduced rate script (solid). Vertical error is blue and horizontal error is red. Lower values are better.
 
-### See what happens with no control
+## 
+### 02.2 C++ controller performance
+The C++ controller successfully follows the provided test trajectory and passes (numerically and visually) all scenarios. See Figures 6-11 below.
 
-Now your `backyard_flyer.py` solution is ready to use your custom controller.  Since you have yet to write any of the control functions, your quad will be incapable of flying, but just to make sure your script is working, start up the simulator and run your script:
+In each scenario, the drone looks stable and performs the required task. The controller is able to handle the non-linearities of scenario 4 (all three drones in the scenario perform their required tasks with the same control gains). The control gains were discovered manually through trial and error, finding workable ranges and setting to mid-points, except yaw gain which is intentionally set to a lower value for higher stability.
 
-```sh
-python backyard_flyer.py
-```
+![Passing all scenarios](images/Figure6.png?raw=true)<br>
+Figure 6: Metrics from successful scenarios (note all are `PASS`)
 
-If you've got everything set up properly, you should see your quad quite unceremoniously fall down to the ground!
+## 
 
-Now let's get to the fun part, time for you to write your own controller!
+![Scenario 1](images/Figure7.png?raw=true)<br>
+Figure 7: Scenario 1 - tuning mass to hover for at least 0.8 seconds
 
+## 
 
-### Alternative to setting up your `backyard_flyer`
+![Scenario 2](images/Figure8.png?raw=true)<br>
+Figure 8: Scenario 2 - stabilize the rotational motion and bring the vehicle back to level attitude
 
-We have provided start code that takes the `backyard_flyer` solution and adds the above modifications in the `controls_flyer.py` script.  Feel free to use that as the starting point, or your own script.
+## 
 
-## Get Familiar with the Code ##
+![Scenario 3](images/Figure9.png?raw=true)<br>
+Figure 9: Scenario 3 - move to a destination (yellow yaws in flight)
 
-For this project, you'll be writing the control system in `controller.py`. The controller is separated into five parts:
+## 
 
- - body rate control
- - reduced attitude control
- - altitude control
- - heading control
- - lateral position control
+![Scenario 4](images/Figure10.png?raw=true)<br>
+Figure 10: Scenario 4 - nonidealities and robustness (red: overweight, orange: ideal, green: shifted mass)
 
-Each of these will be implemented as methods of the `NonlinearController` class and will fit together as shown below. The next step will guide you through the changes to `backyard_flyer.py` to fit the controllers into the right structure.
+## 
 
-![Image of ControlStructure](ControlStructure.png)
+![Scenario 5](images/Figure11.png?raw=true)<br>
+Figure 11: Scenario 5 - trajectory following (red: no feed-forward, orange: with feed-forward)
 
+An additional scenario tests hover stability. In this case, position following error is less than 1.2 millimeters for at least 3.33 seconds.
+<br><br><br>
 
-## The Tasks ##
+## 03 References
 
-In the *Backyard Flyer* project, the vehicle was commanded to go to and stop at a series of waypoints to complete a box pattern.  You may have noticed that the vehicle slows down as it get closer to the waypoint  prior to transitioning to the next.  Additionally, the vehicle does not necessarily fly the sides of the box and ends up "rounding the corners" (you'll notice this more with tighter turns).
+[1] ***Quad Rotorcraft Control***<br>
+Carrillo, Lopez, Lozano, and Pegard<br>
+https://www.springer.com/us/book/9781447143987
 
-For this project, we will be increasing the functionality of the drone by providing trajectory following capabilities.  Instead of go-to waypoints, a trajectory is defined as a position/heading over time. The desired position changes over time and implicitly has a corresponding velocity. The array of positions/time/heading are spaced much closer than the waypoints.
+[2] ***The GRASP Multiple Micro UAV Testbed***<br>
+Michael, Mellinger, Lindsey, and Kumar<br>
+https://pdfs.semanticscholar.org/20b0/f0268bc11c55389816223d712d85203e2936.pdf
 
-Trajectory following requires a much more tuned and tighter controller than what the default drone in Unity had, therefore you will be writing the nested low-level controller needed to achieve trajectory following.  To do this you'll be filling in methods in the `controller.py` class. Using the linear or non-linear dynamics and control from the lessons, you'll write the control code for each of the controller parts showing control diagram shown above.
+[3] ***Feedback Systems, 2nd Ed***<br>
+Karl J. Åström and Richard M. Murray<br>
+http://www.cds.caltech.edu/~murray/amwiki/index.php
 
-The minimum requirements for a successful submission include completing the following:
+[4] ***Feed-Forward Parameter Identification for Precise Periodic Quadrocopter Motions***<br>
+Schoellig, Wiltsche, and D’Andrea<br>
+http://www.dynsyslab.org/wp-content/papercite-data/pdf/schoellig-acc12.pdf
 
- - `body_rate_control()` - a proportional controller on body rates to commanded moments
- - `altitude_control()` - an altitude controller that uses both the down position and the down velocity to command thrust.  Note that you will need to include the non-linear effects from non-zero roll/pitch angles!
- - `yaw_control()` - a linear/proportional heading controller to yaw rate commands (non-linear transformation not required)
- - `roll_pitch_control()` - a reduced attitude controller taking in local acceleration or attitude commands and outputs body rate command.  Note that you will need to account for the non-linear transformation from local accelerations to body rates!
- - `lateral_position_control()` - a linear position controller using the local north/east position and local north/east velocity to generate a commanded local acceleration
- - The final moment/thrust commands limit the input at given saturation limits
+[5] ***On-board Model Predictive Control of a Quadrotor Helicopter***<br>
+Patrick Bouffard<br>
+https://www2.eecs.berkeley.edu/Pubs/TechRpts/2012/EECS-2012-241.pdf
 
+[6] ***Quadcopter Dynamics and Simulation***<br>
+Andrew Gibiansky<br>
+http://andrew.gibiansky.com/blog/physics/quadcopter-dynamics
 
-Each of the methods in `controller.py` contain additional instructions to help you complete the required methods
+[7] ***Propeller Thrust and Drag in Forward Flight***<br>
+Rajan Gill and Raffaello D’Andrea<br>
+http://flyingmachinearena.org/wp-content/publications/2017/gilIEEE17.pdf
 
-You may find that trying to develop all the control functions at the same time may prove to be quite difficult.  It's highly suggested that you code/tune/test your controller from the lowest level. For example, `body_rate_control()`, `altitude_control()`, and `yaw_control()` can all be tested prior to designing `roll_pitch_control()`. The altitude/yaw should be stabilized and the roll/pitch will slowly drift to unstable (instead of immediately flipping over). Next, the `roll_pitch_control()` can be tested by passing in zero acceleration commands. This should stabilize the drone's orientation completely. Tuning a faster and smoother inner loop will make tuning the outer loop easier due to less decoupling of the modes.
+[8] ***Thrust Mixing, Saturation, and Body-Rate Control***<br>
+Faessler, Falanga, and Scaramuzza<br>
+http://rpg.ifi.uzh.ch/docs/RAL17_Faessler.pdf
 
-For each step, you may also find it is easier to see the effects of your controller, so consider replacing the target local position (in the waypoint transition function) with the following:
+[9] ***Modelling and Control of the Crazyflie Quadrotor***<br>
+Marcus Greiff<br>
+http://lup.lub.lu.se/student-papers/record/8905295/file/8905299.pdf
 
-```py
-# replace this
-self.local_position_target = np.array((self.target_position[0], self.target_position[1], self.target_position[2]))
+[10] ***Control of VTOL Vehicles with Thrust-direction Tilting***<br>
+Hua, Hamel, and Samson<br>
+https://arxiv.org/pdf/1308.0191.pdf
 
-# with this
-self.local_position_target = np.array([0.0, 0.0, -3.0])
-```
+[11] ***A platform for aerial robotics research and demonstration: The Flying Machine Arena***<br>
+Lupashin, Hehn, Mueller, Schoellig, Sherback, and D’Andrea<br>
+http://flyingmachinearena.org/wp-content/publications/2014/lupashin2014platform.pdf
 
-This will have your controller attempt to hold at a fixed point just about the origin.
+[12] ***Matrix Equations Solver***<br>
+https://www.symbolab.com/solver/matrix-equations-calculator
 
-### Test the Controller!
+[13] ***Servo Tuning***<br>
+http://support.motioneng.com/downloads-notes/tuning
+<br><br><br>
 
-You will be testing your trajectory following against a trajectory defined in `test_trajectory.txt`. The time, horizontal error, and vertical error are all checked against thresholds in `UnityDrone`. See below for more information on [Testing the Test Trajectory](#testing-on-the-test-trajectory). 
+## 04 Appendix
 
-As with most real systems, in the end there are a set of performance metrics your controller should be able to satisfy.  Therefore the minimum requires for a successful submission include:
+### 04.1 Rotation matrix
 
- - The drone flies the test trajectory faster than the default threshold (20 seconds)
- - The maximum horizontal error is less than the default threshold (2 meters)
- - The maximum vertical error is less than the default threshold (1 meter)
+![Rotation matrix](images/rotMatrix.png?raw=true)<br><br>
 
-Make sure to [run and check the auto-evaluator](#testing-on-the-test-trajectory) on your trajectory flights to get an idea of how your controller is performing as you tune gains!
+## 
+### 04.2 Angular velocity
 
+![Angular velocity](images/angularVelocity.png?raw=true)
 
-### Submission
+## 
+### 04.3 Thrust computation
 
-When you're finished and your controller is successfully able to meet the evaluation requirements, complete a detailed writeup of your solution and how you addressed each of the control functions. The following is required for submission:
+![Thrust compute](images/thrusts.png?raw=true)
 
- - The telemetry log of a successful trajectory following flight
- - A copy of `controller.py`, with all the methods filled in
+![C++ trajectory](images/Figure12.png?raw=true)<br>
+Figure 12: Body coordinates and forces
+<br><br><br>
 
-Optional Submission Requirements (Not Required):
-
- - 2D position plot of your controller flying the test trajectory
- - A plot of the vehicle 2d position overplotted with the designed 2D position
- - A plot of horizontal position error vs. time from the test trajectory
- - A plot of vertical position error vs. time  from the test trajectory
- 
-
-
-### Additional Challenges (Optional)
-
- - Minimize the time to fly the test trajectory while still meeting the error thresholds
- - Integrate with the planning project solution to generate custom trajectories
- - Test your control's robustness to wind disturbances and modeling errors. (Simulation Changes Coming)
-
-Feel free to tune the controller to see how much better your custom designed controller can do than the linear waypoint following controller implemented in the Unity simulator.
-
-
-
-## Additional Resources ##
-
-
-### Unity Drone Class
-
-The the capabilities of the udacidrone object are expanded to low-level control inputs. These additional commands are implemented within the `UnityDrone` class, which is a subclass of the `Drone` class. The additional functionality of this class includes:
-
- - Moment control
- - Sending target vehicle states to the Unity simulation for visualization
- - Load and test against a test trajectory
-
-To use the additional functionality, change your custom drone subclass into a subclass of `UnityDrone`:
-
-```py
-    import UnityDrone from unity_drone
-    
-    class BackyardFlyer(UnityDrone):
-    ...
-```
-
-#### Moment Control
-
-```py
-    def cmd_moment(self, roll_moment, pitch_moment, yaw_moment, thrust):
-        """Command the drone moments.
-
-        Args:
-            roll_moment: in Newton*meter
-            pitch_moment: in Newton*meter
-            yaw_moment: in Newton*meter
-            thrust: upward force in Newtons
-        """
-```
-
-The commanded roll moment, pitch moment, yaw moment and thrust force commands are defined in the body axis and passed at the lowest level to the Unity control system.
-
-#### Target Vehicle States
-
-The following class properties are provided for use within the code. Setting the value of one a property automatically sends the value to the Unity simulation for plotting within the visualization.
-
- - `local_position_target` - 3 element numpy vector
- - `local_velocity_target` - 3 element numpy vector
- - `local_acceleration_target` - 3 element numpy vector
- - `attitude_target` - 3 element numpy vector
- - `body_rate_target` - 3 element numpy vector)
-
-Note: Setting these values are only used for visualization within the Unity simulator and do not actually affect the Unity vehicle control system. 
-
-### Testing on the Test Trajectory
-
-A test trajectory is stored in `test_trajectory.txt`. The position, time, and yaw information can be loaded using:
-
-```py
-(self.position_trajectory, self.time_trajectory, self.yaw_trajectory) = self.load_test_trajectory(time_mult=1.0)
-```
-
-The `time_mult` argument scales the `time_trajectory` by its value. To attempt to complete the trajectory at a faster pace, use values below 1.0.
-
-The `UnityDrone` class automatically checks the horizontal and vertical position error and time when the `local_position_target` property is set. The mission is considered a failure if the maximum position (horizontal or vertical) error is greater than a specified threshold or the total mission time is greater than a specified threshold. The position error and time thresholds can be set using the following properties:
-
- - `threshold_horizontal_error` - Maximum allowed horizontal error on the mission, float > 0.0
- - `threshold_vertical_error` - Maximum allowed vertical error on the mission, float > 0.0
- - `threshold_time` - Maximum mission time, float > 0.0
-
-At the end of the mission, the success can be printed to the terminal using:
-
-```py
-drone.print_mission_score()
-```
-
-The printout will look something like:
-
-```sh
-Maximum Horizontal Error:  1.40065025436
-Maximum Vertical Error:  1.40065025436
-Mission Time:  39.27512404109243
-Mission Success:  True
-```
-
-Additionally, if you run visdom, plots of the vertical and horizontal errors along the path (the plots are generated after the run ends). Before starting the script, run in a different terminal:
-
-```sh
-python -m visdom.server
-```
-
-The plots are default displayed on 'http://localhost:8097/'. Open a web browser after the run is finished to see the displayed error plots.
-
-
-
+    End of report
